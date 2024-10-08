@@ -1,0 +1,95 @@
+using System;
+using Microsoft.Xrm.Tooling.Connector;
+using Microsoft.SharePoint.Client;
+using System.Net;
+using System.Security;
+using System.IO;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        // Dynamics 365 connection string
+        string connectionString = "AuthType=OAuth;Url=https://your-org.crm.dynamics.com;UserName=your-username;Password=your-password;AppId=your-app-id;RedirectUri=your-redirect-uri;LoginPrompt=Auto";
+
+        // Connect to Dynamics 365
+        CrmServiceClient crmService = new CrmServiceClient(connectionString);
+        if (crmService.IsReady)
+        {
+            Console.WriteLine("Connected to Dynamics 365");
+        }
+        else
+        {
+            Console.WriteLine("Failed to connect to Dynamics 365");
+            return;
+        }
+
+        // Get the SharePoint document location for the desired record (replace with actual entity and record details)
+        Guid recordId = new Guid("record-id-here");
+        var documentLocation = GetSharePointDocumentLocation(crmService, recordId);
+
+        if (documentLocation != null)
+        {
+            Console.WriteLine("SharePoint location found: " + documentLocation);
+            // Now, upload the file to SharePoint
+            UploadDocumentToSharePoint(documentLocation, "C:\\Path\\To\\Your\\File.pdf", "username", "password");
+        }
+        else
+        {
+            Console.WriteLine("SharePoint document location not found.");
+        }
+    }
+
+    // Function to retrieve SharePoint document location from Dynamics 365
+    static string GetSharePointDocumentLocation(CrmServiceClient service, Guid recordId)
+    {
+        // Query the Dynamics 365 to get SharePoint Document Location
+        var fetchXml = $@"
+            <fetch>
+              <entity name='sharepointdocumentlocation'>
+                <attribute name='absoluteurl' />
+                <filter>
+                  <condition attribute='regardingobjectid' operator='eq' value='{recordId}' />
+                </filter>
+              </entity>
+            </fetch>";
+
+        var result = service.GetEntityDataByFetchXml(fetchXml);
+        if (result != null && result.Entities.Count > 0)
+        {
+            return result.Entities[0]["absoluteurl"].ToString();
+        }
+
+        return null;
+    }
+
+    // Function to upload a document to SharePoint
+    static void UploadDocumentToSharePoint(string documentLocation, string filePath, string sharePointUsername, string sharePointPassword)
+    {
+        var securePassword = new SecureString();
+        foreach (char c in sharePointPassword) securePassword.AppendChar(c);
+
+        var credentials = new SharePointOnlineCredentials(sharePointUsername, securePassword);
+        using (ClientContext context = new ClientContext(documentLocation))
+        {
+            context.Credentials = credentials;
+
+            using (FileStream fs = new FileStream(filePath, FileMode.Open))
+            {
+                var fileCreationInfo = new FileCreationInformation
+                {
+                    ContentStream = fs,
+                    Overwrite = true,
+                    Url = Path.GetFileName(filePath)
+                };
+
+                List documentsList = context.Web.Lists.GetByTitle("Documents"); // Replace with the actual SharePoint document library name
+                Microsoft.SharePoint.Client.File uploadFile = documentsList.RootFolder.Files.Add(fileCreationInfo);
+                context.Load(uploadFile);
+                context.ExecuteQuery();
+
+                Console.WriteLine("File uploaded successfully to SharePoint.");
+            }
+        }
+    }
+}
